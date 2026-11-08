@@ -10,9 +10,8 @@ import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 
-/** Main loop, screen flow, inputs and camera feedback. */
+/** Main loop, screen flow, Korean tutorial, input and audio. */
 public class Main extends ApplicationAdapter {
-
     private static final float WIDTH = 800f;
     private static final float HEIGHT = 600f;
     private static final float MAX_DT = 1f / 30f;
@@ -41,13 +40,11 @@ public class Main extends ApplicationAdapter {
     private GameRenderer renderer;
     private GameMenu menu;
     private GameOverScreen gameOverScreen;
+    private GameAudio gameAudio;
 
     private OrthographicCamera camera;
     private FitViewport viewport;
-
-    private final CameraManager cameraManager =
-        new CameraManager();
-
+    private final CameraManager cameraManager = new CameraManager();
     private final Vector3 mousePosition = new Vector3();
 
     private float animationTime;
@@ -70,77 +67,54 @@ public class Main extends ApplicationAdapter {
     public void create() {
         world = new World();
         assets = new GameAssets();
-
         renderer = new GameRenderer(assets);
         menu = new GameMenu(assets);
         gameOverScreen = new GameOverScreen();
+        gameAudio = new GameAudio();
 
         camera = new OrthographicCamera();
         viewport = new FitViewport(WIDTH, HEIGHT, camera);
-
-        viewport.update(
-            Gdx.graphics.getWidth(),
-            Gdx.graphics.getHeight(),
-            true
-        );
+        viewport.update(Gdx.graphics.getWidth(), Gdx.graphics.getHeight(), true);
 
         animationTime = 0f;
         endingTime = 0f;
         introElapsed = 0f;
         introDuration = STORY_INTRO_DURATION;
-
         resetCameraForStage();
     }
 
     private float getCameraTargetX() {
-        float desired = world.player.bounds.x
-            + world.player.bounds.width / 2f;
-
-        if (world.isArenaEntered()
-            && !world.isArenaCleared()) {
-
+        float desired = world.player.bounds.x + world.player.bounds.width / 2f;
+        if (world.isArenaEntered() && !world.isArenaCleared()) {
             switch (world.level) {
                 case 2:
-                    return world.isMantisIntroLocked()
-                        ? 2610f : 2800f;
-
+                    return world.isMantisIntroLocked() ? 2610f : 2800f;
                 case 3:
                     return 2600f;
-
                 case 4:
                     return 2200f;
-
                 default:
                     break;
             }
         }
-
         return MathUtils.clamp(
-            desired,
-            WIDTH / 2f,
-            Math.max(
-                WIDTH / 2f,
-                world.worldWidth - WIDTH / 2f
-            )
+            desired, WIDTH / 2f,
+            Math.max(WIDTH / 2f, world.worldWidth - WIDTH / 2f)
         );
     }
 
     private void resetCameraForStage() {
         float x = getCameraTargetX();
-
         camera.position.set(x, HEIGHT / 2f, 0f);
         camera.update();
-
         cameraManager.reset(x);
 
         previousLevel = world.level;
         observedAmbush = world.hasStageFourAmbushOccurred();
         observedArenaCleared = world.isArenaCleared();
         observedMantisOpeningSwing = false;
-
         observedBoss = world.getActiveBoss();
-        observedBossHp = observedBoss != null
-            ? observedBoss.getHp() : 0;
+        observedBossHp = observedBoss != null ? observedBoss.getHp() : 0;
     }
 
     private void beginStageIntro() {
@@ -148,6 +122,7 @@ public class Main extends ApplicationAdapter {
         introElapsed = 0f;
         introDuration = world.level == 1
             ? STORY_INTRO_DURATION : OTHER_INTRO_DURATION;
+
         if (world.level == 1) {
             tutorialStep = 0;
             tutorialStepTime = 0f;
@@ -157,34 +132,28 @@ public class Main extends ApplicationAdapter {
             tutorialStep = TUTORIAL_LINES.length;
         }
         previousState = GameState.RUNNING;
-
         world.player.setMovement(false, false);
         resetCameraForStage();
     }
 
     private void startNewGame() {
         world.restartEntireGame();
-
+        gameAudio.reset();
+        gameAudio.onMenuStart();
         animationTime = 0f;
         endingTime = 0f;
-
         beginStageIntro();
     }
 
     @Override
     public void render() {
-        float dt = Math.min(
-            Gdx.graphics.getDeltaTime(),
-            MAX_DT
-        );
-
+        float dt = Math.min(Gdx.graphics.getDeltaTime(), MAX_DT);
         handleInput();
         menu.update(dt);
 
         switch (state) {
             case TITLE:
                 break;
-
             case STAGE_INTRO:
                 introElapsed += dt;
                 if (introElapsed >= introDuration) {
@@ -192,60 +161,43 @@ public class Main extends ApplicationAdapter {
                     state = GameState.RUNNING;
                 }
                 break;
-
             case RUNNING:
                 checkGameOver();
-
                 if (state != GameState.RUNNING) break;
-
                 world.update(dt);
                 animationTime += dt;
                 updateTutorial(dt);
-
                 checkGameOver();
-
                 if (state != GameState.RUNNING) break;
-
                 if (previousLevel != world.level) {
                     beginStageIntro();
                     break;
                 }
-
                 observeCameraEvents();
-
                 cameraManager.update(
-                    dt,
-                    getCameraTargetX(),
-                    world.worldWidth,
-                    camera
+                    dt, getCameraTargetX(), world.worldWidth, camera
                 );
-
                 if (world.isGameCleared()) {
                     state = GameState.ENDING;
                     endingTime = 0f;
-
                     world.player.setMovement(false, false);
                 }
                 break;
-
             case GAME_OVER:
                 break;
-
             case ENDING:
                 endingTime += dt;
-
                 cameraManager.update(
-                    dt,
-                    getCameraTargetX(),
-                    world.worldWidth,
-                    camera
+                    dt, getCameraTargetX(), world.worldWidth, camera
                 );
                 break;
-
             case PAUSED:
                 break;
         }
 
+        // Audio uses the same state transition, so intro is heard exactly
+        // once when the arena opens. Pausing also pauses the battle music.
+        gameAudio.update(world, state.name(), dt);
         updateWingSound();
         viewport.apply();
 
@@ -253,26 +205,21 @@ public class Main extends ApplicationAdapter {
             menu.renderTitle();
             return;
         }
-
         if (state == GameState.STAGE_INTRO) {
             menu.renderStageIntro(world.level, introElapsed);
             return;
         }
-
         if (state == GameState.GAME_OVER) {
             gameOverScreen.render();
             return;
         }
 
         boolean paused = state == GameState.PAUSED;
-
         boolean ending = state == GameState.ENDING
             || (paused && previousState == GameState.ENDING);
 
         renderer.render(
-            world, camera,
-            animationTime, endingTime,
-            paused, ending
+            world, camera, animationTime, endingTime, paused, ending
         );
 
         if (!paused && state == GameState.RUNNING
@@ -313,84 +260,66 @@ public class Main extends ApplicationAdapter {
             case 6:
                 if (tutorialStepTime >= 4.5f) nextTutorialStep();
                 break;
-            default: break;
+            default:
+                break;
         }
     }
 
     private void observeCameraEvents() {
         boolean ambush = world.hasStageFourAmbushOccurred();
-
-        if (world.level == 4
-            && ambush && !observedAmbush) {
-
+        if (world.level == 4 && ambush && !observedAmbush) {
             cameraManager.startShake(0.85f, 18f);
         }
-
         observedAmbush = ambush;
 
         Enemy boss = world.getActiveBoss();
-
         if (boss != observedBoss) {
             if (boss != null && world.level != 4) {
                 cameraManager.startShake(0.40f, 8f);
             }
-
             observedBoss = boss;
-            observedBossHp = boss != null
-                ? boss.getHp() : 0;
-
-        } else if (boss != null
-            && boss.getHp() < observedBossHp) {
-
+            observedBossHp = boss != null ? boss.getHp() : 0;
+        } else if (boss != null && boss.getHp() < observedBossHp) {
             cameraManager.startShake(0.10f, 2.8f);
             observedBossHp = boss.getHp();
         }
 
-        if (world.level == 2
-            && world.mantis.isIntroSwing()
+        if (world.level == 2 && world.mantis.isIntroSwing()
             && !observedMantisOpeningSwing) {
-
             cameraManager.startShake(0.42f, 15f);
             observedMantisOpeningSwing = true;
         }
 
         boolean cleared = world.isArenaCleared();
-
         if (cleared && !observedArenaCleared) {
             cameraManager.startShake(
-                0.8f,
-                world.level == 4 ? 17f : 12f
+                0.8f, world.level == 4 ? 17f : 12f
             );
         }
-
         observedArenaCleared = cleared;
     }
 
     private void checkGameOver() {
-        if (state == GameState.RUNNING
-            && world.isGameOver()) {
-
+        if (state == GameState.RUNNING && world.isGameOver()) {
             world.player.setMovement(false, false);
             state = GameState.GAME_OVER;
-
             gameOverScreen.showRandomMessage();
         }
     }
 
     private void retryCurrentStage() {
         world.restartCurrentStage();
+        gameAudio.reset();
         if (world.level == 1) {
             tutorialStep = 0;
             tutorialStepTime = 0f;
             tutorialSpacePressed = false;
             tutorialStartX = world.player.bounds.x;
         }
-
         animationTime = 0f;
         endingTime = 0f;
         previousState = GameState.RUNNING;
         state = GameState.RUNNING;
-
         resetCameraForStage();
     }
 
@@ -401,18 +330,16 @@ public class Main extends ApplicationAdapter {
 
     private void handleInput() {
         if (state == GameState.TITLE) {
-            if (pressedStart()) {
-                startNewGame();
-            }
+            if (pressedStart()) startNewGame();
             return;
         }
-
         if (state == GameState.STAGE_INTRO) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
                 if (world.level == 1) {
                     introElapsed = Math.min(
                         STORY_INTRO_DURATION,
-                        ((int)(introElapsed / 3.4f) + 1) * 3.4f);
+                        ((int)(introElapsed / 3.4f) + 1) * 3.4f
+                    );
                 } else {
                     introElapsed = introDuration;
                 }
@@ -420,88 +347,64 @@ public class Main extends ApplicationAdapter {
             }
             return;
         }
-
         if (state == GameState.GAME_OVER) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)) {
                 retryCurrentStage();
-
             } else if (Gdx.input.justTouched()) {
-                mousePosition.set(
-                    Gdx.input.getX(),
-                    Gdx.input.getY(),
-                    0f
-                );
-
+                mousePosition.set(Gdx.input.getX(), Gdx.input.getY(), 0f);
                 viewport.unproject(mousePosition);
-
                 float uiX = mousePosition.x
                     - (camera.position.x - WIDTH / 2f);
-
                 float uiY = mousePosition.y
                     - (camera.position.y - HEIGHT / 2f);
-
-                if (gameOverScreen.isRestartButtonPressed(
-                    uiX, uiY
-                )) {
+                if (gameOverScreen.isRestartButtonPressed(uiX, uiY)) {
                     retryCurrentStage();
                 }
             }
             return;
         }
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.P)
             || Gdx.input.isKeyJustPressed(Input.Keys.ESCAPE)) {
-
             if (state == GameState.PAUSED) {
                 state = previousState;
-
             } else {
                 previousState = state;
                 state = GameState.PAUSED;
-
                 world.player.setMovement(false, false);
             }
             return;
         }
-
         if (state == GameState.PAUSED) return;
-
         if (state == GameState.ENDING) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.ENTER)
                 && endingTime >= 21f) {
                 world.restartEntireGame();
-
                 animationTime = 0f;
                 endingTime = 0f;
                 previousState = GameState.RUNNING;
                 state = GameState.TITLE;
-
                 resetCameraForStage();
             }
             return;
         }
-
         if (world.isCaptured()) {
             if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
                 world.pressFlap();
+                if (!world.isCaptured()) {
+                    if (world.isGameOver()) gameAudio.onEscapeMiss();
+                    else gameAudio.onEscapeSuccessHit();
+                }
             }
             return;
         }
-
-        // Pause still works, but no movement, flap or skills during the intro.
         if (world.isMantisIntroLocked()) {
             world.player.setMovement(false, false);
             return;
         }
-
-        boolean left =
-            Gdx.input.isKeyPressed(Input.Keys.A)
-                || Gdx.input.isKeyPressed(Input.Keys.LEFT);
-
-        boolean right =
-            Gdx.input.isKeyPressed(Input.Keys.D)
-                || Gdx.input.isKeyPressed(Input.Keys.RIGHT);
-
+        boolean left = Gdx.input.isKeyPressed(Input.Keys.A)
+            || Gdx.input.isKeyPressed(Input.Keys.LEFT);
+        boolean right = Gdx.input.isKeyPressed(Input.Keys.D)
+            || Gdx.input.isKeyPressed(Input.Keys.RIGHT);
         world.player.setMovement(left, right);
 
         if (Gdx.input.isKeyJustPressed(Input.Keys.SPACE)) {
@@ -510,15 +413,20 @@ public class Main extends ApplicationAdapter {
             }
             world.pressFlap();
         }
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.Z)) {
+            boolean wasDashing = world.player.isDashing();
             world.pressDash();
+            if (!wasDashing && world.player.isDashing()) {
+                gameAudio.onBeeDash();
+            }
         }
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.X)) {
+            int shots = world.projectiles.size;
             world.pressStinger();
+            if (world.projectiles.size > shots) {
+                gameAudio.onBeeSting();
+            }
         }
-
         if (Gdx.input.isKeyJustPressed(Input.Keys.C)) {
             world.pressSwarm();
         }
@@ -527,13 +435,11 @@ public class Main extends ApplicationAdapter {
     private void updateWingSound() {
         Music buzz = assets.wingBuzz;
         if (buzz == null) return;
-
         boolean play = state == GameState.RUNNING
             && !world.isMantisIntroLocked()
             && !world.isCaptured()
             && !world.player.grounded
             && !world.player.isDashing();
-
         if (play && !buzz.isPlaying()) {
             buzz.play();
         } else if (!play && buzz.isPlaying()) {
@@ -548,6 +454,7 @@ public class Main extends ApplicationAdapter {
 
     @Override
     public void dispose() {
+        gameAudio.dispose();
         gameOverScreen.dispose();
         menu.dispose();
         renderer.dispose();
